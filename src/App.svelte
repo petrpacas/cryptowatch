@@ -1,8 +1,9 @@
 <script lang="ts">
   const milestones = [
-    { label: 'Svelte 5 + TypeScript', state: 'připraveno' },
-    { label: 'Lokální Supabase', state: 'připraveno' },
-    { label: 'Supabase MCP', state: 'připojeno' },
+    { label: 'Databázové schéma', state: 'migrovatelné' },
+    { label: 'Row Level Security', state: 'otestováno' },
+    { label: 'Katalog CoinGecko', state: 'synchronizován' },
+    { label: 'Vyhledávací RPC', state: 'připraveno' },
   ]
 </script>
 
@@ -16,15 +17,15 @@
       <span class="brand-mark" aria-hidden="true">C</span>
       <span>CryptoWatch</span>
     </a>
-    <span class="phase">Milník 1</span>
+    <span class="phase">Milník 2</span>
   </nav>
 
   <section class="hero">
     <div class="eyebrow">Sleduj trh podle sebe</div>
     <h1>Ceny kryptoměn<br /><span>bez neustálého hlídání.</span></h1>
     <p class="intro">
-      Základ aplikace je připravený. V dalších milnících přibude přihlášení, vlastní seznam
-      sledovaných měn a jednorázová cenová upozornění.
+      Databáze umí bezpečně oddělit data uživatelů a vyhledat libovolnou aktivní měnu
+      z katalogu CoinGecko. V dalším milníku přibude přihlášení a správa vlastního seznamu.
     </p>
 
     <div class="actions">
@@ -41,7 +42,7 @@
   <section class="status" aria-labelledby="status-heading">
     <div>
       <p class="section-kicker">Stav projektu</p>
-      <h2 id="status-heading">Pevný základ pro další práci</h2>
+      <h2 id="status-heading">Databáze a katalog jsou připravené</h2>
     </div>
 
     <ul>
@@ -57,6 +58,6 @@
 </main>
 
 <footer>
-  <span>Data později poskytne CoinGecko</span>
+  <span>Data poskytuje CoinGecko</span>
   <span>Postaveno se Svelte a Supabase</span>
 </footer>

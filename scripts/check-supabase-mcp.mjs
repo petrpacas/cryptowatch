@@ -52,12 +52,26 @@ try {
   console.log(`Dostupných nástrojů: ${tools.tools.length}`)
 
   const tableText = tables.content?.find((item) => item.type === 'text')?.text
-  const tableList = tableText ? JSON.parse(tableText) : []
-  const tableNames = Array.isArray(tableList)
-    ? tableList.map((table) => `${table.schema}.${table.name}`).join(', ')
-    : ''
+  const parsedTables = tableText ? JSON.parse(tableText) : []
+  const tableList = Array.isArray(parsedTables) ? parsedTables : (parsedTables.tables ?? [])
+  const tableNames = tableList.map((table) =>
+    table.name.includes('.') ? table.name : `${table.schema}.${table.name}`,
+  )
 
-  console.log(`Tabulky v public: ${tableNames || 'zatím žádné (vzniknou v milníku 2)'}`)
+  console.log(`Tabulky v public: ${tableNames.join(', ') || 'žádné'}`)
+
+  const expectedTables = ['coins', 'watchlist', 'alerts', 'prices', 'notification_events']
+  const missingTables = expectedTables.filter(
+    (expected) => !tableNames.includes(`public.${expected}`),
+  )
+  if (missingTables.length > 0) {
+    throw new Error(`MCP nevidí očekávané tabulky: ${missingTables.join(', ')}`)
+  }
+
+  const tablesWithoutRls = tableList.filter((table) => table.rls_enabled === false)
+  if (tablesWithoutRls.length > 0) {
+    throw new Error(`RLS není zapnuté na: ${tablesWithoutRls.map((table) => table.name).join(', ')}`)
+  }
 
   if (tables.isError) process.exitCode = 1
 } catch (error) {
