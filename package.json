@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "mcp:check": "node scripts/check-supabase-mcp.mjs",
+    "milestone3:check": "node scripts/check-milestone-three.mjs",
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
     "db:lint": "supabase db lint --local --level warning",
