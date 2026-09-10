@@ -2,7 +2,9 @@
 
 Výuková aplikace pro sledování kryptoměn a jednorázová cenová upozornění. Stav projektu a všechna přijatá rozhodnutí jsou v [PLAN.md](./PLAN.md).
 
-## Milník 5
+Veřejná instance: [cryptowatch-demo.netlify.app](https://cryptowatch-demo.netlify.app/)
+
+## Milník 6
 
 Hotová aplikace nyní obsahuje:
 
@@ -20,6 +22,7 @@ Hotová aplikace nyní obsahuje:
 - nejvýše pět pokusů během 23 hodin, dvouminutové skrytí převzaté zprávy a pokračování po chybě jednoho e-mailu,
 - stabilní Resend idempotency key podle ID události, který brání duplicitě i při pádu po přijetí e-mailu poskytovatelem,
 - cron pro ceny každých 10 minut, e-maily každou minutu a katalog jednou denně.
+- opakovatelnou produkční konfiguraci pro Supabase a Netlify.
 
 ## Lokální spuštění
 
@@ -120,6 +123,69 @@ npm run email:check -- tvoje@adresa.cz
 ```
 
 Skript vytvoří izolovanou událost, zavolá worker dvakrát, ověří jediný databázový pokus a testovací data uklidí. Doručení zkontroluj v inboxu a v Resend dashboardu. Pro tento test musí lokální Supabase běžet s platnými hodnotami `RESEND_API_KEY`, `RESEND_FROM` a `WORKER_SECRET`.
+
+## Produkční nasazení
+
+### 1. Supabase
+
+Vytvoř projekt `cryptowatch`, přihlas CLI a propoj tento checkout s jeho project ref:
+
+```sh
+supabase login
+supabase link --project-ref TVUJ_PROJECT_REF
+```
+
+Před zápisem zkontroluj seznam migrací a pak nasaď databázi:
+
+```sh
+supabase db push --linked --dry-run
+supabase db push --linked
+```
+
+Do ignorovaného `supabase/functions/.env` vlož produkční CoinGecko a Resend hodnoty a vlastní náhodný `WORKER_SECRET`. Potom nasaď secrets a všechny čtyři funkce:
+
+```sh
+supabase secrets set --env-file supabase/functions/.env
+supabase functions deploy
+npm run workers:configure:remote
+npm run auth:configure:remote -- https://TVUJ_WEB.netlify.app
+```
+
+`workers:configure:remote` uloží produkční Functions URL a stejný `WORKER_SECRET` do Vaultu a vyvolá první synchronizaci katalogu. `auth:configure:remote` nastaví Site URL, lokální a Netlify redirect URL, Google provider a Resend SMTP podle obou ignorovaných env souborů. Project ref oba skripty čtou z ignorovaného `supabase/.temp/project-ref`; v CI lze místo toho nastavit `SUPABASE_PROJECT_REF`. Tajemství nevypisují do konzole a dočasná Auth konfigurace se po použití smaže.
+
+Nakonec v externích službách nastav:
+
+- **Google OAuth klient:** přidej Supabase callback `https://TVUJ_PROJECT_REF.supabase.co/auth/v1/callback` mezi Authorized redirect URIs.
+- **Resend:** ověř doménu použitou v `RESEND_FROM`; stejný API klíč obslouží Auth SMTP i cenové notifikace.
+
+### 2. Netlify
+
+Propoj GitHub repozitář s Netlify. Soubor `netlify.toml` nastaví Node 24, build `npm run build`, publikování `dist` a SPA fallback. V nastavení webu přidej pouze veřejné proměnné:
+
+```text
+VITE_SUPABASE_URL=https://TVUJ_PROJECT_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=TVUJ_PRODUKCNI_PUBLISHABLE_KEY
+```
+
+Produkční publishable key získáš v Supabase Dashboardu v **Settings → API Keys**. Do Netlify ani prohlížeče nepatří `WORKER_SECRET`, Resend/CoinGecko klíče ani Supabase secret key.
+
+### 3. Kontrola veřejné instance
+
+Po nasazení proveď z veřejné URL celý scénář:
+
+1. Přihlas se Googlem a potom magic linkem.
+2. Vyhledej měnu, přidej ji a ručně načti cenu.
+3. Vytvoř splněný jednorázový alert a ověř, že ho desetiminutový cron deaktivuje.
+4. Ověř právě jednu událost v historii a právě jeden e-mail.
+5. Znovu načti stránku a ověř zachovaný watchlist.
+
+Stav produkčních workerů ověříš bez čtení tajemství:
+
+```sh
+supabase db query --linked "select jobname, schedule, active from cron.job where jobname like 'cryptowatch-%' order by jobname"
+supabase functions list
+supabase secrets list
+```
 
 ## Supabase MCP v Codexu
 
