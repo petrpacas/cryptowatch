@@ -1,33 +1,15 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
+import {
+  getSupabaseSecretKey,
+  jsonResponse,
+} from "../_shared/supabase.ts";
 import { parseCoinCatalog, splitIntoBatches } from "./catalog.ts";
 
 const COINGECKO_COINS_URL =
   "https://api.coingecko.com/api/v3/coins/list?include_platform=false";
 const BATCH_SIZE = 500;
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
-}
-
-function getSupabaseSecretKey(): string | undefined {
-  const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
-
-  if (secretKeys) {
-    try {
-      const parsed = JSON.parse(secretKeys) as Record<string, string>;
-      if (parsed.default) return parsed.default;
-    } catch {
-      // Fall through to the legacy key used by older local runtimes.
-    }
-  }
-
-  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-}
-
-Deno.serve(async (request) => {
+Deno.serve(async (request: Request) => {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }

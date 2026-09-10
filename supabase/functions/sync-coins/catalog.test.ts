@@ -1,7 +1,7 @@
 import {
   assertEquals,
   assertThrows,
-} from "jsr:@std/assert@1";
+} from "@std/assert";
 import { parseCoinCatalog, splitIntoBatches } from "./catalog.ts";
 
 Deno.test("parseCoinCatalog keeps valid CoinGecko ids and duplicate symbols", () => {
@@ -27,4 +27,3 @@ Deno.test("splitIntoBatches preserves every catalog row", () => {
   assertEquals(splitIntoBatches([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   assertThrows(() => splitIntoBatches([1], 0), Error);
 });
-

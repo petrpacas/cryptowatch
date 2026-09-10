@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { Session, SupabaseClient } from '@supabase/supabase-js'
-  import { getSupabaseClient } from './lib/supabase'
+  import { getSupabaseClient, getSupabaseConfig } from './lib/supabase'
 
   type Price = { priceUsd: number; providerUpdatedAt: string | null; fetchedAt: string }
   type Alert = {
@@ -10,7 +10,6 @@
     direction: 'above' | 'below'
     thresholdUsd: number
     isActive: boolean
-    activationVersion: number
   }
   type WatchedCoin = {
     watchlistId: string
@@ -43,7 +42,13 @@
     direction: 'above' | 'below'
     threshold_usd: number
     is_active: boolean
-    activation_version: number
+  }
+  type PriceCheckResponse = {
+    watchedCoins: number
+    failedBatches: number
+    pricesUpdated: number
+    eventsCreated: number
+    failures: string[]
   }
 
   let supabase = $state<SupabaseClient | null>(null)
@@ -54,6 +59,7 @@
   let authBusy = $state(false)
   let magicLinkSent = $state(false)
   let loadingDashboard = $state(false)
+  let refreshingPrices = $state(false)
   let watchlist = $state<WatchedCoin[]>([])
   let searchQuery = $state('')
   let searchResults = $state<SearchResult[]>([])
@@ -63,6 +69,7 @@
   let errorMessage = $state('')
   let searchTimer: ReturnType<typeof setTimeout> | undefined
   let searchRequest = 0
+  let searchInput = $state<HTMLInputElement>()
 
   const alertCount = $derived(watchlist.reduce((total, coin) => total + coin.alerts.length, 0))
   const activeAlertCount = $derived(
@@ -163,7 +170,7 @@
         'id, coin_id, coins!watchlist_coin_id_fkey(id, name, symbol, is_active, prices(price_usd, provider_updated_at, fetched_at))',
       ).order('created_at', { ascending: true }),
       supabase.from('alerts').select(
-        'id, watchlist_id, direction, threshold_usd, is_active, activation_version',
+        'id, watchlist_id, direction, threshold_usd, is_active',
       ).order('created_at', { ascending: true }),
     ])
     loadingDashboard = false
@@ -194,7 +201,6 @@
             direction: alert.direction,
             thresholdUsd: Number(alert.threshold_usd),
             isActive: alert.is_active,
-            activationVersion: alert.activation_version,
           })),
         } satisfies WatchedCoin
       })
@@ -212,6 +218,15 @@
     }
     searchBusy = true
     searchTimer = setTimeout(() => void searchCoins(value.trim(), request), 300)
+  }
+
+  function clearSearch() {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchRequest += 1
+    searchQuery = ''
+    searchResults = []
+    searchBusy = false
+    requestAnimationFrame(() => searchInput?.focus())
   }
 
   async function searchCoins(query: string, request: number) {
@@ -238,7 +253,52 @@
     actionKey = ''
     if (error) return showError(error, 'Měnu se nepodařilo přidat.')
     showNotice(`${coin.name} je nyní ve sledovaných.`)
-    await Promise.all([loadDashboard(), refreshSearch()])
+    clearSearch()
+    await loadDashboard()
+  }
+
+  async function refreshPrices() {
+    if (!supabase || !session || watchlist.length === 0) return
+    refreshingPrices = true
+    errorMessage = ''
+
+    const { url, publishableKey } = getSupabaseConfig()
+    let data: PriceCheckResponse | null = null
+
+    try {
+      const response = await fetch(`${url}/functions/v1/refresh-prices`, {
+        method: 'POST',
+        headers: {
+          apikey: publishableKey,
+          authorization: `Bearer ${session.access_token}`,
+          'content-type': 'application/json',
+        },
+        body: '{}',
+      })
+      const body = await response.json() as PriceCheckResponse & { error?: string; detail?: string }
+      if (!response.ok) throw new Error(body.detail ?? body.error ?? 'Edge Function vrátila chybu.')
+      data = body
+    } catch (error) {
+      refreshingPrices = false
+      return showError(error, 'Ceny se nepodařilo aktualizovat.')
+    }
+
+    refreshingPrices = false
+    if (!data) return showError(null, 'Ceny se nepodařilo aktualizovat.')
+
+    await loadDashboard()
+
+    if (data.failedBatches > 0) {
+      return showError(
+        new Error(data.failures.join(' ')),
+        'Některé ceny se nepodařilo aktualizovat.',
+      )
+    }
+
+    const eventNote = data.eventsCreated > 0
+      ? ` Spuštěné alerty: ${data.eventsCreated}.`
+      : ''
+    showNotice(`Aktualizované ceny: ${data.pricesUpdated}.${eventNote}`)
   }
 
   async function removeCoin(coin: WatchedCoin) {
@@ -335,63 +395,241 @@
 </svelte:head>
 
 {#if !authReady}
-  <main class="centered-state"><div class="spinner" aria-label="Načítání"></div><p>Obnovuji relaci…</p></main>
+  <main class="centered-state">
+    <div class="spinner" aria-hidden="true"></div>
+    <p role="status">Obnovuji relaci…</p>
+  </main>
 {:else if configError}
-  <main class="centered-state"><span class="brand-mark" aria-hidden="true">C</span><h1>Chybí konfigurace</h1><p>{configError}</p><code>cp .env.example .env</code></main>
+  <main class="centered-state">
+    <span class="brand-mark" aria-hidden="true">C</span>
+    <h1>Chybí konfigurace</h1>
+    <p>{configError}</p>
+    <code>cp .env.example .env</code>
+  </main>
 {:else if !session}
   <main class="auth-layout">
     <section class="auth-intro">
-      <a class="brand" href="/" aria-label="CryptoWatch – domů"><span class="brand-mark" aria-hidden="true">C</span><span>CryptoWatch</span></a>
-      <div><p class="eyebrow">Tvůj osobní watchlist</p><h1>Trh se hýbe.<br /><span>Ty nemusíš čekat.</span></h1><p class="intro">Vyber si libovolné kryptoměny z katalogu CoinGecko a nastav cenu, při které tě CryptoWatch upozorní.</p></div>
-      <p class="data-credit">Data poskytuje CoinGecko</p>
+      <a class="brand" href="/" aria-label="CryptoWatch – domů">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span>CryptoWatch</span>
+      </a>
+      <div>
+        <p class="eyebrow">Tvůj osobní watchlist</p>
+        <h1>Trh se hýbe.<br /><span>Ty nemusíš čekat.</span></h1>
+        <p class="intro">Vyber si kryptoměny z katalogu CoinGecko a nastav cenu, při které tě CryptoWatch upozorní.</p>
+      </div>
+      <p class="data-credit">Cenová data poskytuje CoinGecko</p>
     </section>
     <section class="auth-card" aria-labelledby="login-heading">
-      <div><p class="section-kicker">Milník 3</p><h2 id="login-heading">Přihlášení</h2><p class="muted">Bez hesla. Pošleme ti bezpečný odkaz na e-mail.</p></div>
+      <div>
+        <p class="section-kicker">Bez hesla</p>
+        <h2 id="login-heading">Přihlášení</h2>
+        <p class="muted">Pošleme ti bezpečný přihlašovací odkaz na e-mail.</p>
+      </div>
       {#if magicLinkSent}
-        <div class="success-panel" role="status"><span aria-hidden="true">✓</span><div><strong>Zkontroluj e-mail</strong><p>Odkaz jsme poslali na {email}. V lokálním vývoji jej najdeš v Mailpitu.</p></div></div>
+        <div class="success-panel" role="status">
+          <span aria-hidden="true">✓</span>
+          <div>
+            <strong>Zkontroluj e-mail</strong>
+            <p>Odkaz jsme poslali na {email}. V lokálním vývoji jej najdeš v Mailpitu.</p>
+          </div>
+        </div>
         <button class="text-button" type="button" onclick={() => (magicLinkSent = false)}>Použít jiný e-mail</button>
       {:else}
         <form class="auth-form" onsubmit={(event) => { event.preventDefault(); void sendMagicLink() }}>
-          <label for="email">E-mail</label><input id="email" type="email" autocomplete="email" placeholder="ty@example.com" required bind:value={email} />
+          <label for="email">E-mail</label>
+          <input id="email" type="email" autocomplete="email" placeholder="ty@example.com" required bind:value={email} />
           <button class="primary-button" type="submit" disabled={authBusy}>{authBusy ? 'Odesílám…' : 'Poslat magic link'}</button>
         </form>
         <div class="divider"><span>nebo</span></div>
-        <button class="google-button" type="button" disabled={authBusy} onclick={signInWithGoogle}><span class="google-mark" aria-hidden="true">G</span>Pokračovat přes Google</button>
+        <button class="google-button" type="button" disabled={authBusy} onclick={signInWithGoogle}>
+          <span class="google-mark" aria-hidden="true">G</span>
+          Pokračovat přes Google
+        </button>
       {/if}
       {#if errorMessage}<p class="message error" role="alert">{errorMessage}</p>{/if}
       <p class="auth-note">Lokální e-maily otevřeš na <a href="http://localhost:54324" target="_blank" rel="noreferrer">localhost:54324</a>.</p>
     </section>
   </main>
 {:else}
-  <header class="app-header"><nav aria-label="Hlavní navigace">
-    <a class="brand" href="/" aria-label="CryptoWatch – domů"><span class="brand-mark" aria-hidden="true">C</span><span>CryptoWatch</span></a>
-    <div class="account"><span class="account-email">{session.user.email}</span><button class="secondary-button compact" type="button" disabled={actionKey === 'sign-out'} onclick={signOut}>Odhlásit</button></div>
-  </nav></header>
+  <header class="app-header">
+    <nav aria-label="Hlavní navigace">
+      <a class="brand" href="/" aria-label="CryptoWatch – domů">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span>CryptoWatch</span>
+      </a>
+      <div class="account">
+        <span class="account-email">{session.user.email}</span>
+        <button class="secondary-button compact" type="button" disabled={actionKey === 'sign-out'} onclick={signOut}>Odhlásit</button>
+      </div>
+    </nav>
+  </header>
   <main class="dashboard">
-    <section class="dashboard-heading"><div><p class="eyebrow">Přehled</p><h1>Moje sledování</h1><p class="intro">Přidej měny, které tě zajímají, a nastav jejich cenové hranice.</p></div><dl class="stats"><div><dt>Měny</dt><dd>{watchlist.length}</dd></div><div><dt>Aktivní alerty</dt><dd>{activeAlertCount}<small> / {alertCount}</small></dd></div></dl></section>
+    <section class="dashboard-heading" aria-labelledby="dashboard-title">
+      <div>
+        <p class="eyebrow">Přehled</p>
+        <h1 id="dashboard-title">Moje sledování</h1>
+        <p class="intro">Přidej měny, které tě zajímají, a nastav jejich cenové hranice.</p>
+      </div>
+      <dl class="stats">
+        <div><dt>Sledované měny</dt><dd>{watchlist.length}</dd></div>
+        <div><dt>Aktivní alerty</dt><dd>{activeAlertCount}<small> / {alertCount}</small></dd></div>
+      </dl>
+    </section>
     {#if notice}<p class="message success" role="status">{notice}</p>{/if}
     {#if errorMessage}<p class="message error" role="alert">{errorMessage}</p>{/if}
     <section class="search-panel" aria-labelledby="search-heading">
-      <div class="panel-heading"><div><p class="section-kicker">Katalog CoinGecko</p><h2 id="search-heading">Přidat kryptoměnu</h2></div><span class="result-limit">max. 20 výsledků</span></div>
-      <div class="search-box"><span aria-hidden="true">⌕</span><input type="search" value={searchQuery} placeholder="Hledej podle názvu, symbolu nebo CoinGecko ID…" aria-label="Hledat kryptoměnu" oninput={(event) => scheduleSearch(event.currentTarget.value)} />{#if searchBusy}<div class="spinner small" aria-label="Vyhledávám"></div>{/if}</div>
-      {#if searchQuery.trim() && !searchBusy}<div class="search-results">
-        {#if searchResults.length === 0}<p class="empty-inline">Pro „{searchQuery.trim()}“ jsme nic nenašli.</p>
-        {:else}{#each searchResults as coin (coin.id)}<article class="search-result"><div class="coin-icon" aria-hidden="true">{coin.symbol.slice(0, 2).toUpperCase()}</div><div><strong>{coin.name}</strong><p><span>{coin.symbol.toUpperCase()}</span> · {coin.id}</p></div><a href={coin.coingecko_url} target="_blank" rel="noreferrer" aria-label={`${coin.name} na CoinGecko`}>↗</a><button class:watched={coin.is_watched} class="add-button" type="button" disabled={coin.is_watched || actionKey === `add:${coin.id}`} onclick={() => addCoin(coin)}>{coin.is_watched ? 'Přidáno' : actionKey === `add:${coin.id}` ? 'Přidávám…' : '+ Přidat'}</button></article>{/each}{/if}
-      </div>{/if}
+      <div class="panel-heading">
+        <div>
+          <p class="section-kicker">Katalog CoinGecko</p>
+          <h2 id="search-heading">Přidat kryptoměnu</h2>
+        </div>
+        <span class="result-limit">Nejvýše 20 výsledků</span>
+      </div>
+      <label class="sr-only" for="coin-search">Hledat kryptoměnu</label>
+      <div class="search-box">
+        <span aria-hidden="true">⌕</span>
+        <input
+          id="coin-search"
+          bind:this={searchInput}
+          type="search"
+          value={searchQuery}
+          placeholder="Název, symbol nebo CoinGecko ID"
+          aria-describedby="search-help"
+          autocomplete="off"
+          oninput={(event) => scheduleSearch(event.currentTarget.value)}
+        />
+        {#if searchBusy}<div class="spinner small" aria-hidden="true"></div>{/if}
+      </div>
+      <p id="search-help" class="field-help">Začni psát, výsledky se zobrazí automaticky.</p>
+      <p class="sr-only" aria-live="polite">
+        {searchBusy ? 'Vyhledávám.' : searchQuery.trim() ? `Nalezeno výsledků: ${searchResults.length}.` : ''}
+      </p>
+      {#if searchQuery.trim() && !searchBusy}
+        <div id="coin-search-results" class="search-results">
+          {#if searchResults.length === 0}
+            <p class="empty-inline">Pro „{searchQuery.trim()}“ jsme nic nenašli.</p>
+          {:else}
+            <ul>
+              {#each searchResults as coin (coin.id)}
+                <li class="search-result">
+                  <div class="coin-icon" aria-hidden="true">{coin.symbol.slice(0, 2).toUpperCase()}</div>
+                  <div class="search-result-name">
+                    <strong>{coin.name}</strong>
+                    <p><span>{coin.symbol.toUpperCase()}</span> · {coin.id}</p>
+                  </div>
+                  <a class="external-link" href={coin.coingecko_url} target="_blank" rel="noreferrer" aria-label={`${coin.name} na CoinGecko, otevře se v nové kartě`}>Detail ↗</a>
+                  <button class:watched={coin.is_watched} class="add-button" type="button" disabled={coin.is_watched || actionKey === `add:${coin.id}`} onclick={() => addCoin(coin)}>
+                    {coin.is_watched ? 'Přidáno' : actionKey === `add:${coin.id}` ? 'Přidávám…' : 'Přidat'}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
     </section>
     <section class="watchlist-section" aria-labelledby="watchlist-heading">
-      <div class="panel-heading"><div><p class="section-kicker">Watchlist</p><h2 id="watchlist-heading">Sledované měny</h2></div><button class="text-button" type="button" disabled={loadingDashboard} onclick={loadDashboard}>{loadingDashboard ? 'Načítám…' : 'Obnovit data'}</button></div>
-      {#if loadingDashboard && watchlist.length === 0}<div class="empty-state"><div class="spinner"></div><p>Načítám tvůj seznam…</p></div>
-      {:else if watchlist.length === 0}<div class="empty-state"><span aria-hidden="true">◇</span><h3>Zatím nic nesleduješ</h3><p>Vyhledej první měnu nahoře. Alert můžeš přidat až potom, ale nemusíš.</p></div>
-      {:else}<div class="watchlist-grid">{#each watchlist as coin (coin.watchlistId)}<article class="coin-card">
-        <header><div class="coin-title"><div class="coin-icon large" aria-hidden="true">{coin.symbol.slice(0, 2).toUpperCase()}</div><div><div class="title-line"><h3>{coin.name}</h3>{#if !coin.isActive}<span class="inactive-badge">Mimo katalog</span>{/if}</div><a href={`https://www.coingecko.com/en/coins/${coin.coinId}`} target="_blank" rel="noreferrer">{coin.symbol.toUpperCase()} · {coin.coinId} ↗</a></div></div><button class="icon-button danger" type="button" disabled={actionKey === `remove:${coin.watchlistId}`} onclick={() => removeCoin(coin)} aria-label={`Odebrat ${coin.name}`} title="Odebrat měnu a její alerty">×</button></header>
-        <div class="price-block"><span>Poslední cena</span>{#if coin.price}<strong>{formatPrice(coin.price.priceUsd)}</strong><small>Aktualizováno {formatDate(coin.price.providerUpdatedAt ?? coin.price.fetchedAt)}</small>{:else}<strong class="waiting">Čeká na první cenu</strong><small>Cena se načte při následující kontrole.</small>{/if}</div>
-        <section class="alerts" aria-label={`Alerty pro ${coin.name}`}><div class="alerts-heading"><h4>Alerty</h4><span>{coin.alerts.length}</span></div>
-          {#each coin.alerts as alert (alert.id)}<form class:disabled-alert={!alert.isActive} class="alert-row" onsubmit={(event) => updateAlert(event, alert)}><span class:active={alert.isActive} class="status-dot" title={alert.isActive ? 'Aktivní' : 'Vypnutý'}></span><select name="direction" value={alert.direction} aria-label="Směr alertu"><option value="above">nad</option><option value="below">pod</option></select><label><span class="sr-only">Cena v USD</span><span class="currency">$</span><input name="threshold" type="number" min="0.00000001" step="any" value={alert.thresholdUsd} required /></label><span class="version">v{alert.activationVersion}</span><button class="mini-button" type="submit" disabled={actionKey === `save-alert:${alert.id}`}>Uložit</button><button class="mini-button" type="button" disabled={actionKey === `toggle-alert:${alert.id}`} onclick={() => toggleAlert(alert)}>{alert.isActive ? 'Vypnout' : 'Zapnout'}</button><button class="icon-button" type="button" disabled={actionKey === `delete-alert:${alert.id}`} onclick={() => deleteAlert(alert)} aria-label="Smazat alert">×</button></form>{/each}
-          <form class="new-alert" onsubmit={(event) => createAlert(event, coin)}><select name="direction" aria-label="Směr nového alertu"><option value="above">Cena stoupne nad</option><option value="below">Cena klesne pod</option></select><label><span class="sr-only">Nová hranice v USD</span><span class="currency">$</span><input name="threshold" type="number" min="0.00000001" step="any" placeholder="0.00" required /></label><button class="secondary-button compact" type="submit" disabled={actionKey === `create-alert:${coin.watchlistId}`}>+ Přidat alert</button></form>
-        </section>
-      </article>{/each}</div>{/if}
+      <div class="panel-heading watchlist-heading">
+        <div>
+          <p class="section-kicker">Watchlist</p>
+          <h2 id="watchlist-heading">Sledované měny</h2>
+        </div>
+        <button class="refresh-button" type="button" disabled={refreshingPrices || loadingDashboard || watchlist.length === 0} onclick={refreshPrices}>
+          <span aria-hidden="true">↻</span>
+          {refreshingPrices ? 'Aktualizuji ceny…' : 'Aktualizovat ceny'}
+        </button>
+      </div>
+      {#if loadingDashboard && watchlist.length === 0}
+        <div class="empty-state" aria-live="polite">
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Načítám tvůj seznam…</p>
+        </div>
+      {:else if watchlist.length === 0}
+        <div class="empty-state">
+          <span aria-hidden="true">◇</span>
+          <h3>Zatím nic nesleduješ</h3>
+          <p>Vyhledej první měnu nahoře. Alert můžeš přidat až potom, ale nemusíš.</p>
+        </div>
+      {:else}
+        <div class="watchlist-grid">
+          {#each watchlist as coin (coin.watchlistId)}
+            <article class="coin-card">
+              <header>
+                <div class="coin-title">
+                  <div class="coin-icon large" aria-hidden="true">{coin.symbol.slice(0, 2).toUpperCase()}</div>
+                  <div>
+                    <div class="title-line">
+                      <h3>{coin.name}</h3>
+                      {#if !coin.isActive}<span class="inactive-badge">Mimo katalog</span>{/if}
+                    </div>
+                    <a href={`https://www.coingecko.com/en/coins/${coin.coinId}`} target="_blank" rel="noreferrer" aria-label={`${coin.name} na CoinGecko, otevře se v nové kartě`}>{coin.symbol.toUpperCase()} · {coin.coinId} ↗</a>
+                  </div>
+                </div>
+                <button class="icon-button danger" type="button" disabled={actionKey === `remove:${coin.watchlistId}`} onclick={() => removeCoin(coin)} aria-label={`Odebrat ${coin.name} ze sledovaných včetně alertů`} title="Odebrat měnu a její alerty">×</button>
+              </header>
+              <div class="price-block">
+                <span>Poslední cena</span>
+                {#if coin.price}
+                  <strong>{formatPrice(coin.price.priceUsd)}</strong>
+                  <small>Aktualizováno {formatDate(coin.price.providerUpdatedAt ?? coin.price.fetchedAt)}</small>
+                {:else}
+                  <strong class="waiting">Čeká na první cenu</strong>
+                  <small>Použij tlačítko „Aktualizovat ceny“.</small>
+                {/if}
+              </div>
+              <section class="alerts" aria-labelledby={`alerts-${coin.watchlistId}`}>
+                <div class="alerts-heading">
+                  <h4 id={`alerts-${coin.watchlistId}`}>Alerty</h4>
+                  <span aria-label={`Počet alertů: ${coin.alerts.length}`}>{coin.alerts.length}</span>
+                </div>
+                {#each coin.alerts as alert (alert.id)}
+                  <form class:disabled-alert={!alert.isActive} class="alert-row" onsubmit={(event) => updateAlert(event, alert)}>
+                    <div class="alert-status">
+                      <span class:active={alert.isActive} class="status-dot" aria-hidden="true"></span>
+                      <span>{alert.isActive ? 'Aktivní' : 'Vypnutý'}</span>
+                    </div>
+                    <label class="control-field">
+                      <span>Podmínka</span>
+                      <select name="direction" value={alert.direction}>
+                        <option value="above">Cena je nad</option>
+                        <option value="below">Cena je pod</option>
+                      </select>
+                    </label>
+                    <label class="control-field">
+                      <span>Hranice v USD</span>
+                      <span class="price-input"><span class="currency" aria-hidden="true">$</span><input name="threshold" type="number" min="0.00000001" step="any" value={alert.thresholdUsd} required /></span>
+                    </label>
+                    <div class="alert-actions">
+                      <button class="mini-button" type="submit" disabled={actionKey === `save-alert:${alert.id}`}>Uložit</button>
+                      <button class="mini-button" type="button" disabled={actionKey === `toggle-alert:${alert.id}`} onclick={() => toggleAlert(alert)}>{alert.isActive ? 'Vypnout' : 'Zapnout'}</button>
+                      <button class="icon-button" type="button" disabled={actionKey === `delete-alert:${alert.id}`} onclick={() => deleteAlert(alert)} aria-label={`Smazat alert pro ${coin.name}`}>×</button>
+                    </div>
+                  </form>
+                {/each}
+                <form class="new-alert" onsubmit={(event) => createAlert(event, coin)}>
+                  <label class="control-field">
+                    <span>Nová podmínka</span>
+                    <select name="direction">
+                      <option value="above">Cena stoupne nad</option>
+                      <option value="below">Cena klesne pod</option>
+                    </select>
+                  </label>
+                  <label class="control-field">
+                    <span>Hranice v USD</span>
+                    <span class="price-input"><span class="currency" aria-hidden="true">$</span><input name="threshold" type="number" min="0.00000001" step="any" placeholder="0.00" required /></span>
+                  </label>
+                  <button class="secondary-button" type="submit" disabled={actionKey === `create-alert:${coin.watchlistId}`}>Přidat alert</button>
+                </form>
+              </section>
+            </article>
+          {/each}
+        </div>
+      {/if}
     </section>
   </main>
-  <footer><span>Data poskytuje CoinGecko</span><span>CryptoWatch · Milník 3</span></footer>
+  <footer>
+    <a href="https://www.coingecko.com/" target="_blank" rel="noreferrer">Cenová data poskytuje CoinGecko ↗</a>
+    <span>CryptoWatch</span>
+  </footer>
 {/if}

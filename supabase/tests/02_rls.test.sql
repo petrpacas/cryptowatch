@@ -19,7 +19,9 @@ set name = excluded.name,
     symbol = excluded.symbol,
     is_active = excluded.is_active;
 
-insert into public.prices (coin_id, price_usd) values ('bitcoin', 100000);
+insert into public.prices (coin_id, price_usd)
+values ('bitcoin', 100000)
+on conflict (coin_id) do update set price_usd = excluded.price_usd;
 
 insert into public.watchlist (id, user_id, coin_id)
 values
@@ -64,7 +66,11 @@ select is(
   3::bigint,
   'authenticated users can read coins'
 );
-select is((select count(*) from public.prices), 1::bigint, 'authenticated users can read prices');
+select is(
+  (select count(*) from public.prices where coin_id = 'bitcoin'),
+  1::bigint,
+  'authenticated users can read prices'
+);
 select is((select count(*) from public.watchlist), 1::bigint, 'a user sees only their watchlist');
 select is((select count(*) from public.alerts), 1::bigint, 'a user sees only their alerts');
 select is((select count(*) from public.notification_events), 1::bigint, 'a user sees only their notification history');
