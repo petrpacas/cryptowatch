@@ -3,6 +3,7 @@ import {
   getSupabaseSecretKey,
   jsonResponse,
 } from "../_shared/supabase.ts";
+import { isWorkerAuthorized } from "../_shared/worker-auth.ts";
 import { parseCoinCatalog, splitIntoBatches } from "./catalog.ts";
 
 const COINGECKO_COINS_URL =
@@ -15,7 +16,7 @@ Deno.serve(async (request: Request) => {
   }
 
   const workerSecret = Deno.env.get("WORKER_SECRET");
-  if (!workerSecret || request.headers.get("x-worker-secret") !== workerSecret) {
+  if (!isWorkerAuthorized(request, workerSecret)) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 

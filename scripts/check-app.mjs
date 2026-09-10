@@ -4,7 +4,7 @@ process.loadEnvFile?.('.env')
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL
 const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY
-const email = 'milestone3@example.test'
+const email = 'app-check@example.test'
 const mailpitUrl = 'http://127.0.0.1:54324'
 
 if (!supabaseUrl || !publishableKey) {
@@ -67,6 +67,22 @@ async function signInThroughMagicLink() {
 }
 
 async function run() {
+  const preflight = await fetch(`${supabaseUrl}/functions/v1/refresh-prices`, {
+    method: 'OPTIONS',
+    headers: { origin: 'http://localhost:5173' },
+  })
+  assert(preflight.status === 204, 'CORS preflight nevrátil 204.')
+  assert(
+    preflight.headers.get('access-control-allow-origin') === '*',
+    'CORS preflight nevrátil očekávanou hlavičku.',
+  )
+
+  const unauthenticated = await fetch(`${supabaseUrl}/functions/v1/refresh-prices`, {
+    method: 'POST',
+    headers: { apikey: publishableKey },
+  })
+  assert(unauthenticated.status === 401, 'Funkce bez uživatelské relace nevrátila 401.')
+
   const user = await signInThroughMagicLink()
 
   const { data: searchResults, error: searchError } = await supabase.rpc('search_coins', {
@@ -133,8 +149,45 @@ async function run() {
   if (cascadeError) throw cascadeError
   assert(count === 0, 'Smazání watchlistu neodstranilo jeho alert.')
 
+  const { data: bitcoin, error: bitcoinError } = await supabase
+    .from('watchlist')
+    .insert({ user_id: user.id, coin_id: 'bitcoin' })
+    .select('id')
+    .single()
+  if (bitcoinError) throw bitcoinError
+
+  const refreshResponse = await fetch(`${supabaseUrl}/functions/v1/refresh-prices`, {
+    method: 'POST',
+    headers: {
+      apikey: publishableKey,
+      authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      'content-type': 'application/json',
+    },
+    body: '{}',
+  })
+  const refresh = await refreshResponse.json()
+  assert(refreshResponse.ok, `refresh-prices selhalo: ${JSON.stringify(refresh)}`)
+  assert(refresh.watchedCoins === 1, 'Ruční refresh nenačetl právě jednu sledovanou měnu.')
+  assert(refresh.pricesUpdated === 1, 'Ruční refresh neuložil cenu Bitcoinu.')
+
+  const { data: loadedBitcoin, error: priceError } = await supabase
+    .from('watchlist')
+    .select('coins!watchlist_coin_id_fkey(prices(price_usd))')
+    .eq('id', bitcoin.id)
+    .single()
+  if (priceError) throw priceError
+  const loadedCoin = Array.isArray(loadedBitcoin.coins)
+    ? loadedBitcoin.coins[0]
+    : loadedBitcoin.coins
+  const loadedPrice = Array.isArray(loadedCoin?.prices)
+    ? loadedCoin.prices[0]
+    : loadedCoin?.prices
+  assert(Number(loadedPrice?.price_usd) > 0, 'Watchlist po refreshi nemá platnou cenu.')
+
+  await supabase.from('watchlist').delete().eq('id', bitcoin.id)
+
   await supabase.auth.signOut({ scope: 'local' })
-  console.log('Magic link, vyhledávání, watchlist, správa alertu a kaskádové smazání: OK')
+  console.log('Přihlášení, watchlist, alerty, kaskáda a ruční obnovení ceny: OK')
 }
 
 run().catch((error) => {

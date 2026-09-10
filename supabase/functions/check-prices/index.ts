@@ -5,10 +5,10 @@ import {
   jsonResponse,
 } from "../_shared/supabase.ts";
 import {
-  isAuthorizedRequest,
   normalizeCoinIds,
   runPriceCheck,
 } from "./prices.ts";
+import { isWorkerAuthorized } from "../_shared/worker-auth.ts";
 
 Deno.serve(async (request: Request) => {
   if (request.method !== "POST") {
@@ -16,7 +16,7 @@ Deno.serve(async (request: Request) => {
   }
 
   const workerSecret = Deno.env.get("WORKER_SECRET");
-  if (!isAuthorizedRequest(request, workerSecret)) {
+  if (!isWorkerAuthorized(request, workerSecret)) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 

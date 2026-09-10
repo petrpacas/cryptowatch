@@ -32,15 +32,6 @@ export type PriceCheckResult = {
   failures: string[];
 };
 
-export function isAuthorizedRequest(
-  request: Request,
-  workerSecret: string | undefined,
-): boolean {
-  return Boolean(
-    workerSecret && request.headers.get("x-worker-secret") === workerSecret,
-  );
-}
-
 export function normalizeCoinIds(values: unknown): string[] {
   if (!Array.isArray(values)) {
     throw new Error("Watched coin query did not return an array");

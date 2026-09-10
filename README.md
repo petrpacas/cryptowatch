@@ -2,7 +2,7 @@
 
 Výuková aplikace pro sledování kryptoměn a jednorázová cenová upozornění. Stav projektu a všechna přijatá rozhodnutí jsou v [PLAN.md](./PLAN.md).
 
-## Milník 4
+## Milník 5
 
 Hotová aplikace nyní obsahuje:
 
@@ -16,8 +16,10 @@ Hotová aplikace nyní obsahuje:
 - interní Edge Function `check-prices`, která sdílí jedno načtení ceny mezi všemi uživateli,
 - dávkování nejvýše 250 CoinGecko ID a pokračování po chybě samostatné dávky,
 - atomické vytvoření neměnné události, zprávy v `pgmq` a deaktivaci alertu.
-
-E-maily a pravidelné spouštění přes cron přibudou v milníku 5. Fronta v tomto kroku zprávy pouze bezpečně uchovává.
+- interní Edge Function `send-notifications`, která odesílá e-maily přes Resend,
+- nejvýše pět pokusů během 23 hodin, dvouminutové skrytí převzaté zprávy a pokračování po chybě jednoho e-mailu,
+- stabilní Resend idempotency key podle ID události, který brání duplicitě i při pádu po přijetí e-mailu poskytovatelem,
+- cron pro ceny každých 10 minut, e-maily každou minutu a katalog jednou denně.
 
 ## Lokální spuštění
 
@@ -29,6 +31,7 @@ cp .env.example .env
 cp supabase/functions/.env.example supabase/functions/.env
 npm run supabase:start
 npm run db:reset
+npm run workers:configure
 npm run dev
 ```
 
@@ -51,7 +54,9 @@ Pro Google přihlášení vytvoř v Google Auth Platform OAuth klienta typu **We
 
 Client ID a Client Secret vlož do kořenového `.env` jako `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` a `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET`. Potom spusť `npm run supabase:stop` a `npm run supabase:start`, protože změna Auth konfigurace vyžaduje restart lokálního stacku.
 
-Do `supabase/functions/.env` doplň `COINGECKO_DEMO_API_KEY` a vytvoř dlouhý náhodný `WORKER_SECRET`. Interní funkce `sync-coins` a `check-prices` jako první kontrolují hlavičku `x-worker-secret`. Funkce `refresh-prices` místo toho ověřuje JWT přihlášeného uživatele a načte jen jeho watchlist. Secret key Supabase ani `WORKER_SECRET` se do prohlížeče neposílají.
+Do `supabase/functions/.env` doplň `COINGECKO_DEMO_API_KEY`, `RESEND_API_KEY`, ověřeného odesílatele `RESEND_FROM` a vytvoř dlouhý náhodný `WORKER_SECRET`. Interní funkce `sync-coins`, `check-prices` a `send-notifications` jako první kontrolují hlavičku `x-worker-secret`. Funkce `refresh-prices` místo toho ověřuje JWT přihlášeného uživatele a načte jen jeho watchlist. Secret key Supabase ani `WORKER_SECRET` se do prohlížeče neposílají.
+
+Po změně `supabase/functions/.env` restartuj lokální Supabase. `npm run workers:configure` bezpečně uloží URL funkcí a `WORKER_SECRET` do lokálního Supabase Vaultu a provede první synchronizaci CoinGecko katalogu. Příkaz je opakovatelný: existující Vault hodnoty aktualizuje a cron úlohy už vznikly z migrace.
 
 Funkce můžeš v samostatném terminálu spustit takto:
 
@@ -89,7 +94,32 @@ from pgmq.q_notification_emails
 order by msg_id;
 ```
 
-`pgmq` schéma není vystavené přes Data API a přihlášený uživatel do něj nemá přístup. Zprávy bude číst až interní `send-notifications` v milníku 5.
+`pgmq` schéma není vystavené přes Data API a přihlášený uživatel do něj nemá přístup. Zprávy čte jen interní `send-notifications` přes tři `security definer` databázové funkce dostupné výhradně roli `service_role`.
+
+### E-maily, opakování a cron
+
+`send-notifications` každou minutu převezme nejvýše pět zpráv a na dvě minuty je skryje ostatním konzumentům. Před odesláním atomicky zvýší `delivery_attempts`. Úspěšnou zprávu označí jako `sent`, uloží ID od Resendu a přesune ji do archivu fronty. Chyby `429`, `5xx`, síťové chyby a souběžný požadavek se stejným idempotency key zkusí znovu; ostatní chyby ukončí hned. Pátý neúspěšný pokus nebo 23 hodin od prvního pokusu nastaví stav `failed` pro ruční kontrolu.
+
+Každý požadavek na Resend používá `cryptowatch/notification/<event-id>`. Obsah e-mailu vzniká pouze z neměnného snapshotu události, takže další pokus odešle stejný obsah se stejným klíčem. Resend tento klíč drží 24 hodin; kratší 23hodinové okno ponechává časovou rezervu.
+
+Naplánované databázové úlohy zobrazíš v Supabase Studio v části Cron nebo SQL dotazem:
+
+```sql
+select jobname, schedule, command
+from cron.job
+where jobname like 'cryptowatch-%'
+order by jobname;
+```
+
+Lokální cron používá adresu `host.docker.internal`, protože požadavek vzniká uvnitř databázového kontejneru. Ceny se kontrolují po 10 minutách kvůli limitu CoinGecko; minutový odesílač už externí cenové API nevolá a pouze rychle vybírá hotové zprávy z fronty. Katalog se synchronizuje denně v 03:17.
+
+Skutečný testovací e-mail pošli až na adresu, kterou smíš použít:
+
+```sh
+npm run email:check -- tvoje@adresa.cz
+```
+
+Skript vytvoří izolovanou událost, zavolá worker dvakrát, ověří jediný databázový pokus a testovací data uklidí. Doručení zkontroluj v inboxu a v Resend dashboardu. Pro tento test musí lokální Supabase běžet s platnými hodnotami `RESEND_API_KEY`, `RESEND_FROM` a `WORKER_SECRET`.
 
 ## Supabase MCP v Codexu
 
@@ -110,27 +140,27 @@ npm run mcp:check
 
 ## Kontroly
 
+Pro běžnou statickou a automatickou kontrolu stačí:
+
 ```sh
-npm run check
-npm run build
+npm run verify
+```
+
+Obnova schématu a integrační scénáře jsou záměrně oddělené, protože mění lokální data nebo volají externí CoinGecko/Resend:
+
+```sh
 npm run db:reset
-npm run db:test
-npm run db:lint
-npm run functions:check
-npm run functions:lint
-npm run functions:test
-npm run milestone3:check
-npm run milestone4:check
-npm run manual-refresh:check
+npm run workers:configure
+npm run app:check
+npm run workers:check
+npm run email:check -- tvoje@adresa.cz
 ```
 
 Kontroly funkcí používají oficiální Deno 2.9.6 Docker image, stejnou verzi jako doporučené lokální CLI pro editor. Databázové testy běží v transakci a po dokončení svá testovací data vrátí zpět.
 
-`npm run milestone3:check` provede celý lokální scénář přes veřejný Supabase klient: zachytí magic link v Mailpitu, přihlásí testovacího uživatele, vyhledá Dogecoin, přidá jej do watchlistu, vytvoří a upraví alert a nakonec aplikační data uklidí.
+`npm run app:check` nyní sdružuje dříve oddělené a z velké části duplicitní kontroly milníku 3 a ručního refreshu. Přes veřejný Supabase klient ověří magic link, vyhledávání, watchlist, správu alertu, kaskádové smazání, CORS, odmítnutí anonymního refreshu a načtení ceny přihlášeného uživatele.
 
-`npm run milestone4:check` vloží do lokální databáze izolovaný alert a spustí dvě cenové kontroly současně. Ověří, že souběh vytvořil právě jednu událost, jednu queue zprávu a alert deaktivoval; testovací data následně uklidí. Databázové pgTAP testy navíc pokrývají ceny pod, přesně na a nad hranicí, chybějící a zastaralý čas poskytovatele, starší běh workeru a novou verzi po reaktivaci.
-
-`npm run manual-refresh:check` ověří CORS, odmítnutí anonymního požadavku a celý ruční refresh s platnou uživatelskou relací. Test používá samostatného lokálního uživatele a svůj watchlist po dokončení uklidí.
+`npm run workers:check` ověří souběžné cenové kontroly. Databázové pgTAP testy pokrývají RLS, cenové hranice, frontu, atomické převzetí e-mailu, retry limit, časové okno a cron. Deno testy ověřují parsování poskytovatelů, dávkování, tvorbu e-mailu, klasifikaci chyb a pád po přijetí e-mailu Resendem. Tyto vrstvy mají rozdílný účel, proto zůstávají oddělené; počet samostatných Node integračních souborů se snížil ze tří na dva.
 
 Pro správnou kontrolu TypeScriptu v Edge Functions nainstaluj [Deno CLI](https://docs.deno.com/runtime/getting_started/installation/) (`brew install deno` na macOS) a doporučené rozšíření **Deno** ve VS Code. Po prvním otevření projektu případně spusť „Developer: Reload Window“. Soubor `supabase/functions/deno.json` definuje všechny externí importy; frontend nadále kontroluje TypeScript přes Svelte a lokální verzi z `node_modules`.
 
@@ -142,4 +172,4 @@ Pro správnou kontrolu TypeScriptu v Edge Functions nainstaluj [Deno CLI](https:
 - Do Gitu patří pouze soubory `.env.example` s nefunkčními zástupnými hodnotami.
 - `supabase/config.toml` patří do Gitu; skutečná tajemství v něm musí být uvedena jen přes `env(...)`.
 
-Použité návody: [Vite](https://vite.dev/guide/), [lokální Supabase](https://supabase.com/docs/guides/local-development), [magic link](https://supabase.com/docs/reference/javascript/auth-signinwithotp), [Google přihlášení](https://supabase.com/docs/guides/auth/social-login/auth-google), [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [databázové testy](https://supabase.com/docs/guides/local-development/testing/overview), [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets), [konfigurace funkcí](https://supabase.com/docs/guides/functions/function-configuration), [Supabase Queues/pgmq](https://supabase.com/docs/guides/queues/pgmq), [CoinGecko `/coins/list`](https://docs.coingecko.com/demo/reference/coins-list) a [CoinGecko `/simple/price`](https://docs.coingecko.com/reference/simple-price).
+Použité návody: [Vite](https://vite.dev/guide/), [lokální Supabase](https://supabase.com/docs/guides/local-development), [magic link](https://supabase.com/docs/reference/javascript/auth-signinwithotp), [Google přihlášení](https://supabase.com/docs/guides/auth/social-login/auth-google), [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [databázové testy](https://supabase.com/docs/guides/local-development/testing/overview), [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets), [konfigurace funkcí](https://supabase.com/docs/guides/functions/function-configuration), [plánování Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions), [Supabase Vault](https://supabase.com/docs/guides/database/vault), [Supabase Queues/pgmq](https://supabase.com/docs/guides/queues/pgmq), [Resend API](https://resend.com/docs/api-reference/emails/send-email), [Resend idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys), [CoinGecko `/coins/list`](https://docs.coingecko.com/demo/reference/coins-list) a [CoinGecko `/simple/price`](https://docs.coingecko.com/reference/simple-price).

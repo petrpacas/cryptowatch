@@ -4,22 +4,22 @@ import {
   assertRejects,
 } from "@std/assert";
 import {
-  isAuthorizedRequest,
   normalizeCoinIds,
   parseCoinGeckoPrices,
   runPriceCheck,
   splitIntoPriceBatches,
 } from "./prices.ts";
+import { isWorkerAuthorized } from "../_shared/worker-auth.ts";
 
 Deno.test("authorization requires the exact configured worker secret", () => {
-  assert(!isAuthorizedRequest(new Request("http://localhost"), "secret"));
-  assert(!isAuthorizedRequest(
+  assert(!isWorkerAuthorized(new Request("http://localhost"), "secret"));
+  assert(!isWorkerAuthorized(
     new Request("http://localhost", {
       headers: { "x-worker-secret": "wrong" },
     }),
     "secret",
   ));
-  assert(isAuthorizedRequest(
+  assert(isWorkerAuthorized(
     new Request("http://localhost", {
       headers: { "x-worker-secret": "secret" },
     }),
