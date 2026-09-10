@@ -448,7 +448,9 @@
         </button>
       {/if}
       {#if errorMessage}<p class="message error" role="alert">{errorMessage}</p>{/if}
-      <p class="auth-note">Lokální e-maily otevřeš na <a href="http://localhost:54324" target="_blank" rel="noreferrer">localhost:54324</a>.</p>
+      {#if import.meta.env.DEV}
+        <p class="auth-note">Lokální e-maily otevřeš na <a href="http://localhost:54324" target="_blank" rel="noreferrer">localhost:54324</a>.</p>
+      {/if}
     </section>
   </main>
 {:else}
