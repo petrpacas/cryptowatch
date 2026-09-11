@@ -73,7 +73,7 @@ insert into auth.users (id, email)
 values ('a5000000-0000-4000-8000-000000000001', 'delivery@example.test');
 
 insert into public.coins (id, name, symbol)
-values ('m5-delivery', 'Milestone Delivery', 'm5d');
+values ('test-email-delivery', 'Test Delivery', 'ted');
 
 insert into public.notification_events (
   id, user_id, source_alert_id, activation_version, coin_id, coin_name,
@@ -84,35 +84,35 @@ values
     'a5100000-0000-4000-8000-000000000001',
     'a5000000-0000-4000-8000-000000000001',
     'a5200000-0000-4000-8000-000000000001',
-    1, 'm5-delivery', 'Milestone Delivery', 'm5d', 'above', 10, 11,
+    1, 'test-email-delivery', 'Test Delivery', 'ted', 'above', 10, 11,
     'delivery@example.test'
   ),
   (
     'a5100000-0000-4000-8000-000000000002',
     'a5000000-0000-4000-8000-000000000001',
     'a5200000-0000-4000-8000-000000000002',
-    1, 'm5-delivery', 'Milestone Delivery', 'm5d', 'below', 10, 9,
+    1, 'test-email-delivery', 'Test Delivery', 'ted', 'below', 10, 9,
     'delivery@example.test'
   ),
   (
     'a5100000-0000-4000-8000-000000000003',
     'a5000000-0000-4000-8000-000000000001',
     'a5200000-0000-4000-8000-000000000003',
-    1, 'm5-delivery', 'Milestone Delivery', 'm5d', 'above', 10, 11,
+    1, 'test-email-delivery', 'Test Delivery', 'ted', 'above', 10, 11,
     'delivery@example.test'
   ),
   (
     'a5100000-0000-4000-8000-000000000004',
     'a5000000-0000-4000-8000-000000000001',
     'a5200000-0000-4000-8000-000000000004',
-    1, 'm5-delivery', 'Milestone Delivery', 'm5d', 'above', 10, 11,
+    1, 'test-email-delivery', 'Test Delivery', 'ted', 'above', 10, 11,
     'delivery@example.test'
   ),
   (
     'a5100000-0000-4000-8000-000000000005',
     'a5000000-0000-4000-8000-000000000001',
     'a5200000-0000-4000-8000-000000000005',
-    1, 'm5-delivery', 'Milestone Delivery', 'm5d', 'above', 10, 11,
+    1, 'test-email-delivery', 'Test Delivery', 'ted', 'above', 10, 11,
     'delivery@example.test'
   );
 

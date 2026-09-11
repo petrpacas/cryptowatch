@@ -147,3 +147,14 @@ Deno.test("one failed email does not block the rest of a claimed batch", async (
   assertEquals(failures, [{ retryable: false }]);
   assertEquals(completed, [second.eventId]);
 });
+
+Deno.test("branded email links to the app in HTML and text, and keeps its payload across retries", () => {
+  const first = createEmailPayload(delivery, "CryptoWatch <alerts@example.com>");
+  const retry = createEmailPayload({ ...delivery, deliveryAttempt: 2 }, "CryptoWatch <alerts@example.com>");
+  assertEquals(retry, first);
+  assertStringIncludes(first.html, 'href="https://cryptowatch-demo.netlify.app/"');
+  assertStringIncludes(first.text, "https://cryptowatch-demo.netlify.app/");
+  assertStringIncludes(first.html, "Otevřít moje sledování");
+  assertStringIncludes(first.html, 'lang="cs"');
+  assert(!first.html.includes("Unsafe <Coin>"));
+});

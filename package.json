@@ -8,8 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "verify": "npm run check && npm run build && npm run functions:check && npm run functions:lint && npm run functions:test && npm run db:test && npm run db:lint",
-    "mcp:check": "node scripts/check-supabase-mcp.mjs",
+    "verify": "node scripts/build-email-template.mjs --check && npm run check && npm run build && npm run test:ui && npm run functions:check && npm run functions:lint && npm run functions:test && npm run db:test && npm run db:lint",
     "app:check": "node scripts/check-app.mjs",
     "workers:check": "node scripts/check-workers.mjs",
     "email:check": "node scripts/check-workers.mjs --email",
@@ -25,9 +24,14 @@
     "functions:serve": "supabase functions serve --no-verify-jwt",
     "supabase:start": "supabase start",
     "supabase:status": "supabase status",
-    "supabase:stop": "supabase stop"
+    "supabase:stop": "supabase stop",
+    "db:types": "node scripts/generate-db-types.mjs",
+    "test:ui": "playwright test",
+    "emails:build": "node scripts/build-email-template.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^24.13.3",
@@ -39,5 +43,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }

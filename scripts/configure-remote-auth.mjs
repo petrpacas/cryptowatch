@@ -1,10 +1,11 @@
+import { magicLinkEmail, MAGIC_LINK_SUBJECT } from '../supabase/functions/_shared/email-layout.ts'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 
-process.loadEnvFile?.('.env')
-process.loadEnvFile?.('supabase/functions/.env')
+process.loadEnvFile(process.env.CRYPTOWATCH_APP_ENV ?? '.env')
+process.loadEnvFile(process.env.CRYPTOWATCH_FUNCTIONS_ENV ?? 'supabase/functions/.env')
 
 const publicSiteUrl = process.argv[2]?.replace(/\/$/, '')
 const explicitProjectRef = process.env.SUPABASE_PROJECT_REF?.trim()
@@ -54,11 +55,19 @@ function parseSender(value) {
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit', ...options })
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options })
+    let output = ''
+    child.stdout.on('data', (chunk) => { output += chunk })
+    child.stderr.on('data', (chunk) => { output += chunk })
     child.on('error', reject)
     child.on('close', (code) => {
       if (code === 0) resolve()
-      else reject(new Error(`${command} skončil s kódem ${code}`))
+      else {
+        for (const secret of [googleClientSecret, resendApiKey]) {
+          if (secret) output = output.replaceAll(secret, '[redacted]')
+        }
+        reject(new Error(`${command} skončil s kódem ${code}: ${output.trim()}`))
+      }
     })
   })
 }
@@ -81,6 +90,14 @@ additional_redirect_urls = [
   ${JSON.stringify('http://127.0.0.1:5173/**')},
   ${JSON.stringify(previewUrl)},
 ]
+
+[auth.email.template.magic_link]
+subject = ${JSON.stringify(MAGIC_LINK_SUBJECT)}
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.confirmation]
+subject = ${JSON.stringify(MAGIC_LINK_SUBJECT)}
+content_path = "./supabase/templates/magic-link.html"
 
 [auth.email.smtp]
 enabled = true
@@ -105,7 +122,8 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), 'cryptowatch-auth-'))
 
 try {
   const supabaseDirectory = join(temporaryRoot, 'supabase')
-  await mkdir(supabaseDirectory)
+  await mkdir(join(supabaseDirectory, 'templates'), { recursive: true })
+  await writeFile(join(supabaseDirectory, 'templates', 'magic-link.html'), magicLinkEmail())
   await writeFile(join(supabaseDirectory, 'config.toml'), config, { mode: 0o600 })
   await run('supabase', [
     'config',

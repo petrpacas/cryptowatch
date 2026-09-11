@@ -1,3 +1,4 @@
+import { assertLocalUrl } from './lib/local.mjs'
 import { execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
 
@@ -5,11 +6,13 @@ const execFile = promisify(execFileCallback)
 process.loadEnvFile?.('.env')
 process.loadEnvFile?.('supabase/functions/.env')
 
+assertLocalUrl(process.env.VITE_SUPABASE_URL)
+
 const container = 'supabase_db_cryptowatch'
-const userId = 'b4000000-0000-4000-8000-000000000001'
-const watchlistId = 'b4100000-0000-4000-8000-000000000001'
-const alertId = 'b4200000-0000-4000-8000-000000000001'
-const coinId = 'm4-concurrent'
+const userId = crypto.randomUUID()
+const watchlistId = crypto.randomUUID()
+const alertId = crypto.randomUUID()
+const coinId = `test-concurrent-${crypto.randomUUID()}`
 const fetchedAt = '2026-09-10T12:00:00Z'
 const pricePayload = JSON.stringify([
   {
@@ -44,7 +47,14 @@ function assert(condition, message) {
 
 async function cleanup() {
   await sql(`
-    select pgmq.purge_queue('notification_emails');
+    delete from pgmq.q_notification_emails
+    where message ->> 'event_id' in (
+      select id::text from public.notification_events where user_id = '${userId}'
+    );
+    delete from pgmq.a_notification_emails
+    where message ->> 'event_id' in (
+      select id::text from public.notification_events where user_id = '${userId}'
+    );
     delete from auth.users where id = '${userId}';
     delete from public.coins where id = '${coinId}';
   `)
@@ -62,7 +72,7 @@ async function run() {
     values ('${userId}', 'concurrent@example.test');
 
     insert into public.coins (id, name, symbol)
-    values ('${coinId}', 'Concurrent Coin', 'm4c');
+    values ('${coinId}', 'Concurrent Coin', 'test');
 
     insert into public.watchlist (id, user_id, coin_id)
     values ('${watchlistId}', '${userId}', '${coinId}');
@@ -132,7 +142,7 @@ async function runEmailSmoke(recipientEmail) {
   const smokeUserId = crypto.randomUUID()
   const eventId = crypto.randomUUID()
   const sourceAlertId = crypto.randomUUID()
-  const smokeCoinId = `m5-email-${suffix}`
+  const smokeCoinId = `test-email-${suffix}`
 
   async function cleanupEmailSmoke() {
     await sql(`

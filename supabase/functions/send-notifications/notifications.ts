@@ -1,3 +1,5 @@
+import { APP_URL, emailLayout, escapeHtml } from "../_shared/email-layout.ts";
+
 export type NotificationDirection = "above" | "below";
 
 export type NotificationDelivery = {
@@ -43,15 +45,6 @@ export class DeliveryError extends Error {
   }
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function displayPrice(value: string): string {
   const price = Number(value);
   if (!Number.isFinite(price) || price <= 0) return `$${value}`;
@@ -80,7 +73,8 @@ export function createEmailPayload(
     `CryptoWatch zachytil cenu měny ${delivery.coinName} (${symbol}).`,
     `Aktuální cena: ${triggerPrice}`,
     `Nastavená podmínka: ${direction} ${threshold}`,
-    "Alert byl po odeslání automaticky vypnut.",
+    "Alert byl po splnění podmínky automaticky vypnut. V aplikaci jej můžeš znovu zapnout nebo upravit.",
+    `Otevřít moje sledování: ${APP_URL}`,
   ].join("\n");
 
   return {
@@ -88,15 +82,21 @@ export function createEmailPayload(
     to: [delivery.recipientEmail],
     subject,
     text,
-    html: `
-      <main style="font-family:system-ui,sans-serif;line-height:1.6;color:#102820">
-        <h1 style="font-size:24px">CryptoWatch upozornění</h1>
-        <p>Měna <strong>${escapeHtml(delivery.coinName)} (${escapeHtml(symbol)})</strong> splnila nastavenou podmínku.</p>
-        <p>Aktuální cena: <strong>${escapeHtml(triggerPrice)}</strong><br>
-        Nastavená podmínka: ${direction} ${escapeHtml(threshold)}</p>
-        <p>Alert byl po vytvoření upozornění automaticky vypnut.</p>
-      </main>
-    `.trim(),
+    html: emailLayout({
+      preview: `${delivery.coinName}: ${triggerPrice}. Cena je ${direction} hranicí ${threshold}.`,
+      eyebrow: "Cenové upozornění",
+      title: `${symbol} je ${direction} tvým limitem.`,
+      body: `<p style="margin:0 0 24px;color:#b3c7be;font-size:16px;line-height:1.7;">Měna <strong style="color:#f3fbf7;">${escapeHtml(delivery.coinName)} (${escapeHtml(symbol)})</strong> splnila nastavenou podmínku.</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #385348;border-bottom:1px solid #385348;">
+            <tr><td style="padding:20px 0 6px;color:#b3c7be;font-size:14px;">Zachycená cena</td></tr>
+            <tr><td style="padding:0 0 16px;color:#82f5c9;font-size:30px;font-weight:700;line-height:1.3;">${escapeHtml(triggerPrice)}</td></tr>
+            <tr><td style="padding:0 0 20px;color:#b3c7be;font-size:16px;line-height:1.6;">Tvůj limit: <strong style="color:#f3fbf7;">${direction} ${escapeHtml(threshold)}</strong></td></tr>
+          </table>
+          <p style="margin:24px 0 0;color:#b3c7be;font-size:16px;line-height:1.7;">Alert se po splnění podmínky automaticky vypnul. V aplikaci jej můžeš znovu zapnout nebo upravit.</p>`,
+      actionLabel: "Otevřít moje sledování",
+      actionUrl: APP_URL,
+      footer: "Tento e-mail dostáváš na základě svého cenového alertu v CryptoWatch. Cenová data poskytuje CoinGecko. Aktuální cena se už mohla změnit.",
+    }),
   };
 }
 

@@ -1,15 +1,19 @@
+import { MAGIC_LINK_SUBJECT } from '../supabase/functions/_shared/email-layout.ts'
+import { assertLocalUrl } from './lib/local.mjs'
 import { createClient } from '@supabase/supabase-js'
 
 process.loadEnvFile?.('.env')
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL
 const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY
-const email = 'app-check@example.test'
+const email = `app-check-${crypto.randomUUID()}@example.test`
 const mailpitUrl = 'http://127.0.0.1:54324'
 
 if (!supabaseUrl || !publishableKey) {
   throw new Error('Chybí VITE_SUPABASE_URL nebo VITE_SUPABASE_PUBLISHABLE_KEY v .env.')
 }
+
+assertLocalUrl(supabaseUrl)
 
 const supabase = createClient(supabaseUrl, publishableKey, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -30,6 +34,8 @@ async function getLatestMagicLink() {
     if (message) {
       const detailResponse = await fetch(`${mailpitUrl}/api/v1/message/${message.ID}`)
       const detail = await detailResponse.json()
+      assert(detail.Subject === MAGIC_LINK_SUBJECT, 'Přihlašovací e-mail nemá český předmět.')
+      assert(detail.HTML?.includes('Přihlásit se do CryptoWatch'), 'Přihlašovací e-mail neobsahuje nové tlačítko.')
       const content = `${detail.HTML ?? ''}\n${detail.Text ?? ''}`
       const match = content.match(/https?:\/\/[^"'<>\s]+\/auth\/v1\/verify\?[^"'<>\s]+/)
       if (match) return match[0].replaceAll('&amp;', '&')
@@ -170,6 +176,18 @@ async function run() {
   assert(refresh.watchedCoins === 1, 'Ruční refresh nenačetl právě jednu sledovanou měnu.')
   assert(refresh.pricesUpdated === 1, 'Ruční refresh neuložil cenu Bitcoinu.')
 
+  const repeatedRefresh = await fetch(`${supabaseUrl}/functions/v1/refresh-prices`, {
+    method: 'POST',
+    headers: {
+      apikey: publishableKey,
+      authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      'content-type': 'application/json',
+    },
+    body: '{}',
+  })
+  assert(repeatedRefresh.status === 429, 'Opakovaný refresh nevrátil 429.')
+  assert(repeatedRefresh.headers.get('retry-after') === '60', 'Chybí hlavička Retry-After.')
+
   const { data: loadedBitcoin, error: priceError } = await supabase
     .from('watchlist')
     .select('coins!watchlist_coin_id_fkey(prices(price_usd))')
@@ -186,11 +204,13 @@ async function run() {
 
   await supabase.from('watchlist').delete().eq('id', bitcoin.id)
 
-  await supabase.auth.signOut({ scope: 'local' })
   console.log('Přihlášení, watchlist, alerty, kaskáda a ruční obnovení ceny: OK')
 }
 
 run().catch((error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
+}).finally(async () => {
+  await supabase.from('watchlist').delete().not('id', 'is', null)
+  await supabase.auth.signOut({ scope: 'local' })
 })

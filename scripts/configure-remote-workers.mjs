@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 
-process.loadEnvFile?.('supabase/functions/.env')
+process.loadEnvFile(process.env.CRYPTOWATCH_FUNCTIONS_ENV ?? 'supabase/functions/.env')
 
 const workerSecret = process.env.WORKER_SECRET
 const explicitProjectRef = process.env.SUPABASE_PROJECT_REF?.trim()
@@ -40,7 +40,7 @@ function runRemoteSql(statement) {
     child.on('error', reject)
     child.on('close', (code) => {
       if (code === 0) resolve(stdout)
-      else reject(new Error(stderr.trim() || stdout.trim() || `supabase db query skončil s kódem ${code}`))
+      else reject(new Error(stderr.replaceAll(workerSecret, '[redacted]').trim() || stdout.replaceAll(workerSecret, '[redacted]').trim() || `supabase db query skončil s kódem ${code}`))
     })
     child.stdin.end(statement)
   })

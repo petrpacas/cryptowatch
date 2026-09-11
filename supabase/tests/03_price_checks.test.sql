@@ -44,13 +44,13 @@ values
 
 insert into public.coins (id, name, symbol, is_active)
 values
-  ('m4-above', 'Milestone Above', 'm4a', true),
-  ('m4-below', 'Milestone Below', 'm4b', true),
-  ('m4-equal', 'Milestone Equal', 'm4e', true),
-  ('m4-stale', 'Milestone Stale', 'm4s', true),
-  ('m4-missing-time', 'Milestone Missing Time', 'm4m', true),
-  ('m4-invalid', 'Milestone Invalid', 'm4i', true),
-  ('m4-inactive', 'Milestone Inactive', 'm4x', false)
+  ('test-price-above', 'Test Above', 'tpa', true),
+  ('test-price-below', 'Test Below', 'tpb', true),
+  ('test-price-equal', 'Test Equal', 'tpe', true),
+  ('test-price-stale', 'Test Stale', 'tps', true),
+  ('test-price-missing-time', 'Test Missing Time', 'tpm', true),
+  ('test-price-invalid', 'Test Invalid', 'tpi', true),
+  ('test-price-inactive', 'Test Inactive', 'tpx', false)
 on conflict (id) do update
 set name = excluded.name,
     symbol = excluded.symbol,
@@ -58,14 +58,14 @@ set name = excluded.name,
 
 insert into public.watchlist (id, user_id, coin_id)
 values
-  ('a4100000-0000-4000-8000-000000000001', 'a4000000-0000-4000-8000-000000000001', 'm4-above'),
-  ('a4100000-0000-4000-8000-000000000002', 'a4000000-0000-4000-8000-000000000002', 'm4-above'),
-  ('a4100000-0000-4000-8000-000000000003', 'a4000000-0000-4000-8000-000000000001', 'm4-below'),
-  ('a4100000-0000-4000-8000-000000000004', 'a4000000-0000-4000-8000-000000000001', 'm4-equal'),
-  ('a4100000-0000-4000-8000-000000000005', 'a4000000-0000-4000-8000-000000000001', 'm4-stale'),
-  ('a4100000-0000-4000-8000-000000000006', 'a4000000-0000-4000-8000-000000000001', 'm4-missing-time'),
-  ('a4100000-0000-4000-8000-000000000007', 'a4000000-0000-4000-8000-000000000001', 'm4-invalid'),
-  ('a4100000-0000-4000-8000-000000000008', 'a4000000-0000-4000-8000-000000000001', 'm4-inactive');
+  ('a4100000-0000-4000-8000-000000000001', 'a4000000-0000-4000-8000-000000000001', 'test-price-above'),
+  ('a4100000-0000-4000-8000-000000000002', 'a4000000-0000-4000-8000-000000000002', 'test-price-above'),
+  ('a4100000-0000-4000-8000-000000000003', 'a4000000-0000-4000-8000-000000000001', 'test-price-below'),
+  ('a4100000-0000-4000-8000-000000000004', 'a4000000-0000-4000-8000-000000000001', 'test-price-equal'),
+  ('a4100000-0000-4000-8000-000000000005', 'a4000000-0000-4000-8000-000000000001', 'test-price-stale'),
+  ('a4100000-0000-4000-8000-000000000006', 'a4000000-0000-4000-8000-000000000001', 'test-price-missing-time'),
+  ('a4100000-0000-4000-8000-000000000007', 'a4000000-0000-4000-8000-000000000001', 'test-price-invalid'),
+  ('a4100000-0000-4000-8000-000000000008', 'a4000000-0000-4000-8000-000000000001', 'test-price-inactive');
 
 insert into public.alerts (id, user_id, watchlist_id, direction, threshold_usd)
 values
@@ -77,17 +77,17 @@ values
   ('a4200000-0000-4000-8000-000000000006', 'a4000000-0000-4000-8000-000000000001', 'a4100000-0000-4000-8000-000000000007', 'above', 1);
 
 select results_eq(
-  $$select public.get_watched_coin_ids() @> '["m4-above", "m4-below"]'::jsonb$$,
+  $$select public.get_watched_coin_ids() @> '["test-price-above", "test-price-below"]'::jsonb$$,
   $$values (true)$$,
   'watched coin RPC returns active watched IDs'
 );
 select is(
-  (select count(*) from jsonb_array_elements_text(public.get_watched_coin_ids()) as id where id = 'm4-above'),
+  (select count(*) from jsonb_array_elements_text(public.get_watched_coin_ids()) as id where id = 'test-price-above'),
   1::bigint,
   'a coin watched by two users is returned once'
 );
 select is(
-  (select count(*) from jsonb_array_elements_text(public.get_watched_coin_ids()) as id where id = 'm4-inactive'),
+  (select count(*) from jsonb_array_elements_text(public.get_watched_coin_ids()) as id where id = 'test-price-inactive'),
   0::bigint,
   'inactive catalog coins are not fetched'
 );
@@ -95,12 +95,12 @@ select is(
 create temporary table first_batch_result as
 select * from public.process_price_batch(
   '[
-    {"coin_id":"m4-above","price_usd":101,"provider_updated_at":"2026-09-10T09:59:00Z"},
-    {"coin_id":"m4-below","price_usd":99,"provider_updated_at":"2026-09-10T09:59:00Z"},
-    {"coin_id":"m4-equal","price_usd":100,"provider_updated_at":"2026-09-10T09:59:00Z"},
-    {"coin_id":"m4-stale","price_usd":2,"provider_updated_at":"2026-09-10T09:43:59Z"},
-    {"coin_id":"m4-missing-time","price_usd":2,"provider_updated_at":null},
-    {"coin_id":"m4-invalid","price_usd":-1,"provider_updated_at":"2026-09-10T09:59:00Z"},
+    {"coin_id":"test-price-above","price_usd":101,"provider_updated_at":"2026-09-10T09:59:00Z"},
+    {"coin_id":"test-price-below","price_usd":99,"provider_updated_at":"2026-09-10T09:59:00Z"},
+    {"coin_id":"test-price-equal","price_usd":100,"provider_updated_at":"2026-09-10T09:59:00Z"},
+    {"coin_id":"test-price-stale","price_usd":2,"provider_updated_at":"2026-09-10T09:43:59Z"},
+    {"coin_id":"test-price-missing-time","price_usd":2,"provider_updated_at":null},
+    {"coin_id":"test-price-invalid","price_usd":-1,"provider_updated_at":"2026-09-10T09:59:00Z"},
     {"coin_id":"does-not-exist","price_usd":12,"provider_updated_at":"2026-09-10T09:59:00Z"}
   ]'::jsonb,
   '2026-09-10T10:00:00Z'
@@ -137,7 +137,7 @@ select is((select is_active from public.alerts where id = 'a4200000-0000-4000-80
 
 select is(
   (select events_created from public.process_price_batch(
-    '[{"coin_id":"m4-equal","price_usd":101,"provider_updated_at":"2026-09-10T10:04:00Z"}]'::jsonb,
+    '[{"coin_id":"test-price-equal","price_usd":101,"provider_updated_at":"2026-09-10T10:04:00Z"}]'::jsonb,
     '2026-09-10T10:05:00Z'
   )),
   1::bigint,
@@ -155,7 +155,7 @@ select is(
 );
 select is(
   (select events_created from public.process_price_batch(
-    '[{"coin_id":"m4-above","price_usd":102,"provider_updated_at":"2026-09-10T10:09:00Z"}]'::jsonb,
+    '[{"coin_id":"test-price-above","price_usd":102,"provider_updated_at":"2026-09-10T10:09:00Z"}]'::jsonb,
     '2026-09-10T10:10:00Z'
   )),
   1::bigint,
@@ -168,7 +168,7 @@ select is(
 );
 select is(
   (select events_created from public.process_price_batch(
-    '[{"coin_id":"m4-above","price_usd":103,"provider_updated_at":"2026-09-10T10:10:00Z"}]'::jsonb,
+    '[{"coin_id":"test-price-above","price_usd":103,"provider_updated_at":"2026-09-10T10:10:00Z"}]'::jsonb,
     '2026-09-10T10:11:00Z'
   )),
   0::bigint,
@@ -181,14 +181,14 @@ where id = 'a4200000-0000-4000-8000-000000000001';
 
 select is(
   (select prices_updated from public.process_price_batch(
-    '[{"coin_id":"m4-above","price_usd":150,"provider_updated_at":"2026-09-10T09:59:00Z"}]'::jsonb,
+    '[{"coin_id":"test-price-above","price_usd":150,"provider_updated_at":"2026-09-10T09:59:00Z"}]'::jsonb,
     '2026-09-10T10:00:00Z'
   )),
   0::bigint,
   'an older fetch cannot overwrite a newer stored price'
 );
 select is(
-  (select price_usd from public.prices where coin_id = 'm4-above'),
+  (select price_usd from public.prices where coin_id = 'test-price-above'),
   103::numeric,
   'the newest fetched price remains stored'
 );
@@ -214,7 +214,7 @@ select throws_ok(
 select is(
   (select count(*) from public.notification_events where status = 'pending' and source_alert_id::text like 'a4200000%'),
   4::bigint,
-  'new events remain pending for the milestone 5 email worker'
+  'new events remain pending for the email worker'
 );
 
 select * from finish();

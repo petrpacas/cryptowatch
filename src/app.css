@@ -184,7 +184,7 @@ select {
   background: rgba(3, 13, 10, 0.84);
   transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
 }
-input::placeholder { color: #789187; opacity: 1; }
+input::placeholder { color: var(--subtle); opacity: 1; }
 input:hover,
 select:hover { border-color: rgba(181, 225, 207, 0.58); }
 input:focus,
@@ -227,6 +227,8 @@ select:focus { border-color: var(--mint); box-shadow: none; }
 .app-header { border-bottom: 1px solid var(--line); background: rgba(7, 17, 15, 0.82); backdrop-filter: blur(18px); }
 nav, .dashboard, footer { width: min(1180px, calc(100% - 48px)); margin-inline: auto; }
 nav { display: flex; min-height: 82px; align-items: center; justify-content: space-between; }
+.header-feedback { width: min(1180px, calc(100% - 48px)); padding-bottom: 18px; margin-inline: auto; }
+.header-feedback .message { margin: 0; }
 .account { display: flex; align-items: center; gap: 16px; }
 .account-email { color: var(--muted); font-size: 14px; }
 .dashboard { padding: 68px 0 96px; }
@@ -273,6 +275,7 @@ nav { display: flex; min-height: 82px; align-items: center; justify-content: spa
 .text-button { min-height: 40px; padding: 7px; color: var(--mint-strong); background: transparent; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .refresh-button { display: inline-flex; min-height: 46px; padding: 0 18px; align-items: center; gap: 9px; border: 1px solid rgba(130, 245, 201, 0.55); color: var(--mint-dark); background: var(--mint); font-size: 14px; }
 .refresh-button > span { font-size: 21px; line-height: 1; }
+.refresh-button > span.spinning { animation: spin 700ms linear infinite; }
 .watchlist-grid { display: grid; gap: 22px; }
 .coin-card { padding: 30px; }
 .coin-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
@@ -325,7 +328,7 @@ footer a { color: var(--muted); text-decoration: underline; text-underline-offse
 }
 
 @media (max-width: 680px) {
-  nav, .dashboard, footer { width: min(100% - 28px, 1180px); }
+  nav, .dashboard, footer, .header-feedback { width: min(100% - 28px, 1180px); }
   nav { min-height: 72px; }
   .account-email { display: none; }
   .dashboard { padding-top: 48px; }
@@ -357,3 +360,9 @@ footer a { color: var(--muted); text-decoration: underline; text-underline-offse
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Shared keyboard treatment also covers navigation targets and repeated forms. */
+.skip-link { position: fixed; top: 12px; left: 12px; z-index: 10; padding: 12px; background: var(--mint); color: var(--mint-dark); transform: translateY(-200%); }
+.skip-link:focus { transform: none; }
+.alert-row > .message, .new-alert > .message { grid-column: 1 / -1; }
+.coin-title h3, .search-result strong { overflow-wrap: anywhere; }

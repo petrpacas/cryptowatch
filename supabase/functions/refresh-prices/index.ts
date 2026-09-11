@@ -47,6 +47,17 @@ Deno.serve(async (request: Request) => {
   }
 
   try {
+    const { data: allowed, error: claimError } = await supabaseAdmin.rpc(
+      "claim_price_refresh", { p_user_id: userData.user.id },
+    );
+    if (claimError) throw claimError;
+    if (!allowed) {
+      return jsonResponse(
+        { error: "Ceny lze ručně aktualizovat jednou za minutu. Zkus to prosím za chvíli." },
+        429,
+        { ...corsHeaders, "retry-after": "60" },
+      );
+    }
     const result = await runPriceCheck(createPriceCheckDependencies(
       supabaseAdmin,
       coinGeckoApiKey,

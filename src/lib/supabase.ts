@@ -1,6 +1,9 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-let client: SupabaseClient | undefined
+import type { Database } from './database.types'
+
+export type AppClient = SupabaseClient<Database>
+let client: AppClient | undefined
 
 export function getSupabaseConfig() {
   const url = import.meta.env.VITE_SUPABASE_URL
@@ -13,11 +16,11 @@ export function getSupabaseConfig() {
   return { url, publishableKey }
 }
 
-export function getSupabaseClient(): SupabaseClient {
+export function getSupabaseClient(): AppClient {
   if (client) return client
 
   const { url, publishableKey } = getSupabaseConfig()
-  client = createClient(url, publishableKey, {
+  client = createClient<Database>(url, publishableKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,

@@ -1,3 +1,4 @@
+import { assertLocalUrl } from './lib/local.mjs'
 import { spawn } from 'node:child_process'
 
 process.loadEnvFile?.('.env')
@@ -6,6 +7,7 @@ process.loadEnvFile?.('supabase/functions/.env')
 const container = 'supabase_db_cryptowatch'
 const workerSecret = process.env.WORKER_SECRET
 const browserSupabaseUrl = process.env.VITE_SUPABASE_URL ?? 'http://127.0.0.1:54321'
+assertLocalUrl(browserSupabaseUrl)
 const cronFunctionsUrl = 'http://host.docker.internal:54321/functions/v1'
 
 if (!workerSecret || workerSecret.startsWith('replace-') || workerSecret.length < 24) {
@@ -39,7 +41,7 @@ function runSql(statement) {
     child.on('error', reject)
     child.on('close', (code) => {
       if (code === 0) resolve(stdout)
-      else reject(new Error(stderr.trim() || `psql skončil s kódem ${code}`))
+      else reject(new Error(stderr.replaceAll(workerSecret, '[redacted]').trim() || `psql skončil s kódem ${code}`))
     })
     child.stdin.end(statement)
   })
